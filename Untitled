@@ -1,0 +1,6 @@
+var arr = [];
+arr[5] = 5;
+arr[9] = 9;
+arr.forEach(function(data){
+    console.log(data);
+})
