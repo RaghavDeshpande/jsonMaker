@@ -1,6 +1,7 @@
 const fs = require('fs');
 const readline = require('readline');
 const _ =  require('underscore');
+const keywords = ["LOCATION", "EQUIP fl", "MANUFACT", "INSTL BY", "DATE", "THROUGH", "MODEL", "SERIAL#", "EQ TYPE", "WARRANTY"];
 
 const options = {
   flag:'r',
@@ -8,15 +9,13 @@ const options = {
   fd:null,
   mode:0o666,
   autoClose: true
-}
+};
 const strm = fs.createReadStream('1Equip100 (1).csv', options);
 const rl = readline.createInterface({
   input: strm
 });
-const keywords = ["LOCATION", "EQUIP fl", "MANUFACT", "INSTL BY", "DATE", "THROUGH", "MODEL", "SERIAL#", "EQ TYPE", "WARRANTY"];
-
-var master = {};
-var currentKey = '';
+var jsonData = {};
+var currentAddress = '';
 var equipNumber = 0;
 
 
@@ -26,7 +25,6 @@ var equipNumber = 0;
 */
 function processLine(str){
   let temp = {};
-  // console.log(str);
   keywords.forEach((key)=>{
     if(str.includes(key)){
       temp[key] = str.indexOf(key);
@@ -34,24 +32,20 @@ function processLine(str){
       return;
     }
   });
-  if(temp && Object.keys(temp).length){
-    // console.log("temp", temp);
+  if(temp && Object.keys(temp).length)
     extract(str, temp);
-
-  }
-
   else
     return;
-
 }
 /*
 * Function to make dictonary.
 */
 function extract(str, obj){
   if(str.includes("LOCATION")){
-    currentKey = str.substring("LOCATION:".length, str.length).trim();
-    master[currentKey] =  master[currentKey] || {};
-    equipNumber = 0;
+    currentAddress = str.substring("LOCATION:".length, str.length).trim();
+    jsonData[currentAddress] =  jsonData[currentAddress] || {"equipments":[]};
+    rl.resume();
+    return;
   }
 
   var cut1 = _.invert(obj)[_.min(obj)] || '';
@@ -61,50 +55,46 @@ function extract(str, obj){
   }
 
   var cut2 = _.invert(obj)[_.min(obj)] || '';
-  if(cut1){
-    let cutHere = str.indexOf(cut1) + cut1.length + 1; // +1 for the semicolon.
-    var key2;
-    if(cut1 == 'EQUIP fl'){
-      equipNumber += 1;
-      var key2 = "EQUIPMENT_" + equipNumber;
-      master[currentKey][key2] = master[currentKey][key2] || {};
-    }
-    if(cut1 == "LOCATION"){
-      var key2 = "EQUIPMENT_" + equipNumber;
-      master[currentKey][key2] = master[currentKey][key2] || {};
-      master[currentKey][key2][cut1] = str.substring(cutHere, str.indexOf(cut2) );
-      master[currentKey][key2][cut1] = master[currentKey][key2][cut1] ? master[currentKey][key2][cut1].trim() : '';
-    }
-    
-    if(cut2){
-      master[currentKey][key2][cut1] = str.substring(cutHere, str.indexOf(cut2) );
-      master[currentKey][key2][cut1] = master[currentKey][key2][cut1] ? master[currentKey][key2][cut1].trim() : '';
-    } else {
-      master[currentKey][key2][cut1] =  str.substring(cutHere, str.length);
-      master[currentKey][key2][cut1] = master[currentKey][key2][cut1] ? master[currentKey][key2][cut1].trim() : '';
-    }
 
+  var equip ;
+  if(cut1 == 'EQUIP fl'){
+    equip = {};
+  } else {
+    equip = jsonData[currentAddress]["equipments"].pop() || {};
+  }
+
+  if(cut1){
+    let cutHere = str.indexOf(cut1) + cut1.length + 1; // +1 for the semicolon
+    if(cut2){
+      equip[cut1] = str.substring(cutHere, str.indexOf(cut2) );
+      equip[cut1]  = equip[cut1]  ? equip[cut1].trim() : '';
+    } else {
+      equip[cut1]  =  str.substring(cutHere, str.length);
+      equip[cut1]  = equip[cut1] ? equip[cut1].trim() : '';
+    }
+    jsonData[currentAddress]["equipments"].push(equip);
   }
   if(obj && Object.keys(obj).length)
     extract(str, obj);
   else {
-    // console.log(master);
+    // console.log(jsonData);
     rl.resume();
+    return;
   }
 }
 
 
 // EVENT HANDLERS.
 strm.on("close",()=>{
-  // console.log(master);
-  fs.writeFile("output.json", JSON.stringify(master), 'utf8', function(err){
+  // console.log(jsonData);
+  fs.writeFile("output.json", JSON.stringify(jsonData), 'utf8', function(err){
     if(err){
-      console.log("An error occured while writitng to file");
-      return console.log(err);
+      return console.log('write to file failed: ',err);
     }
     console.log("write to file done");
   })
 });
+
 rl.on('line', (input)=>{
   rl.pause();
   processLine(input.trim());
